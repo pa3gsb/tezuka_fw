@@ -8,10 +8,7 @@ DEVICE_PID=0xb673
 
 echo "generating the boot.img"
 
-GENIMAGE_CFG="${BOARD_DIR}/genimage-boot.cfg"
-GENIMAGE_TMP="${BUILD_DIR}/genimage.tmp"
-
-rm -rf "${GENIMAGE_TMP}"
+cp $BOARD_DIR/bitstream/fsbl.elf $BIN_DIR
 
 cp $BIN_DIR/u-boot $BIN_DIR/u-boot.elf
 echo "img : {[bootloader] $BIN_DIR/fsbl.elf $BIN_DIR/u-boot.elf}" >  $BIN_DIR/boot.bif
@@ -39,7 +36,7 @@ touch 	$SDIMGDIR/boot.bif
 cp $BIN_DIR/u-boot $SDIMGDIR/u-boot.elf
 cp $BIN_DIR/system_top.bit $SDIMGDIR/
 #SHOULD BE WARNING WHEN BUILDING COMPLETE FPGA
-cp $BOARD_DIR/bitstream/fsbl.elf $BIN_DIR
+
 cp $BIN_DIR/fsbl.elf $SDIMGDIR/
 echo "img : {[bootloader] $SDIMGDIR/fsbl.elf  $SDIMGDIR/system_top.bit  $SDIMGDIR/u-boot.elf}" >  $SDIMGDIR/boot.bif
 bootgen -image $SDIMGDIR/boot.bif -w -o i $SDIMGDIR/BOOT.bin
@@ -59,4 +56,4 @@ cp $BIN_DIR/pluto.dfu $SDIMGDIR/uImage
 cp $BIN_DIR/zynq-libre.dtb $SDIMGDIR/devicetree.dtb
 cp $BOARD_DIR/uboot-env.txt $SDIMGDIR/uEnv.txt
 
-cd $BIN_DIR && zip tezuka.zip boot.dfu boot.frm pluto.frm pluto.dfu sdimg/*
+cd $BIN_DIR && zip tezuka.zip boot.dfu boot.frm pluto.frm pluto.dfu sdimg/* sdimg/overclock/*
