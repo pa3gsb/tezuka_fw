@@ -1,74 +1,82 @@
-# LibreSDR vaste TCXO: automatische TX-NCO
+# LibreSDR fixed TCXO: automatic TX-NCO
 
-`overlay/usr/sbin/libresdr-tx-nco` corrigeert de TX-frequentie met de FPGA-NCO.
-Het script draait met BusyBox `/bin/sh`, `awk` en `devmem`. Het schrijft niet
-naar de TX-LO, sample-rate of `xo_correction` en start zelf geen zendsignaal.
-Er is geen controle op het oude XO-script; zorg zelf dat dit niet meer bijregelt.
+`overlay/usr/sbin/libresdr-tx-nco` corrects the TX frequency using the FPGA NCO.
+The script runs on BusyBox `/bin/sh`, `awk` and `devmem`. It does not write to
+the TX-LO, sample rate, or `xo_correction`, and does not start any transmit
+signal itself. There is no check for the old XO script; make sure yourself
+that it is no longer adjusting things.
 
-## Voorbereiden op de LibreSDR
+## Preparing the LibreSDR
 
-1. Laad de aangepaste bitstream met NCO-registers `0x43c00020` t/m `0x43c00028`.
-   De meegeleverde bitstream wordt door deze wijziging niet vervangen.
-2. Gebruik een vaste 40 MHz TCXO en sluit de stabiele 10 MHz-referentie aan.
-3. Zorg vooraf dat `ad9361-phy/xo_correction` op `40000000` staat. Het herstellen
-   daarvan kan de radio onderbreken; de controller doet dit daarom niet zelf.
-4. Zet `FPGA_NCO_SUPPORTED=1` in `/etc/libresdr-tx-nco.conf`. De FPGA heeft geen
-   capability-register; deze instelling bevestigt expliciet de juiste bitstream.
-5. Controleer dat `out_voltage_sampling_frequency` van `ad9361-phy` de rate op
-   het TX-NCO-datapad is. Bij een afwijkende integratie kun je `TX_RATE_ATTR`
-   instellen op het juiste converter-rate-attribuut, na interpolatie.
+1. Load the modified bitstream with NCO registers `0x43c00020` through
+   `0x43c00028`. The bundled bitstream is not replaced by this change.
+2. Use a fixed 40 MHz TCXO and connect the stable 10 MHz reference.
+3. Make sure beforehand that `ad9361-phy/xo_correction` is set to `40000000`.
+   Restoring it can interrupt the radio, so the controller does not do this
+   itself.
+4. Set `FPGA_NCO_SUPPORTED=1` in `/etc/libresdr-tx-nco.conf`. The FPGA has no
+   capability register; this setting explicitly confirms the correct
+   bitstream is present.
+5. Check that `out_voltage_sampling_frequency` of `ad9361-phy` is the rate on
+   the TX-NCO data path. For a different integration, you can set
+   `TX_RATE_ATTR` to the correct converter rate attribute, after
+   interpolation.
 
-Start als root:
+Start as root:
 
 ```sh
 libresdr-tx-nco
 ```
 
-Dit start de achtergrondregeling en opent het terminalscherm. `q` sluit alleen
-het scherm; de regeling loopt door, ook na het sluiten van SSH. `d` stopt de
-regeling en schakelt de NCO uit. Het scherm gebruikt ANSI-codes en BusyBox ash
-`read -n -t`. Een minimale terminal van ongeveer 80 kolommen is aanbevolen.
+This starts the background control loop and opens the terminal screen. `q`
+only closes the screen; the control loop keeps running, even after closing
+SSH. `d` stops the control loop and disables the NCO. The screen uses ANSI
+codes and BusyBox ash `read -n -t`. A terminal of at least about 80 columns
+is recommended.
 
 ```sh
-libresdr-tx-nco start    # achtergrond zonder scherm
-libresdr-tx-nco status  # eenmalige status
-libresdr-tx-nco stop    # stoppen, laatste NCO-correctie blijft actief
-libresdr-tx-nco disable # stoppen en NCO uitschakelen
-libresdr-tx-nco run     # controller op de voorgrond, voor diagnose
-libresdr-tx-nco self-test # rekentest met de lokale awk, zonder hardwarewrites
+libresdr-tx-nco start    # background, no screen
+libresdr-tx-nco status  # one-off status
+libresdr-tx-nco stop    # stop, last NCO correction stays active
+libresdr-tx-nco disable # stop and disable the NCO
+libresdr-tx-nco run     # controller in the foreground, for diagnostics
+libresdr-tx-nco self-test # calculation test with the local awk, no hardware writes
 ```
 
-`/run/libresdr-tx-nco/status` bevat de laatste status, `events` de laatste acht
-gebeurtenissen en `daemon.log` opstartfouten. Na stoppen is de status een laatste
-momentopname. Het PID/lock voorkomt alleen dubbele exemplaren van deze controller.
-Na een harde proceskill moet een achtergebleven lock handmatig verwijderd worden,
-nadat gecontroleerd is dat de bijbehorende PID niet meer draait.
+`/run/libresdr-tx-nco/status` holds the latest status, `events` the last
+eight events, and `daemon.log` startup errors. After stopping, the status is
+a final snapshot. The PID/lock only prevents duplicate instances of this
+controller. After a hard process kill, a leftover lock must be removed
+manually, after checking that the corresponding PID is no longer running.
 
-## Regelgedrag
+## Control behavior
 
-- Iedere seconde: referentiestatus, TX-LO en converter-rate lezen.
-- Standaard iedere twee seconden: signed TCXO-fout bemonsteren. De FPGA biedt
-  geen sequence-counter, dus individuele nieuwe meetvensters zijn niet bewijsbaar
-  te herkennen. Twee seconden is een conservatieve startwaarde; identieke of nul
-  metingen worden niet ten onrechte als defect aangemerkt.
-- Na start of referentieherstel eerst twee seconden wachten en minstens vijf
-  samples verzamelen. Het venster groeit vervolgens tot zestien samples.
-- Het gemiddelde van het schuivende venster bepaalt de correctie. Bij een
-  spreiding boven 5 Hz of een absolute meetfout boven 10000 Hz geen nieuwe schatting.
-- Vanaf vijf samples `TRACKING`; bij een vol geldig venster `STABLE`. Deze status
-  betekent een gevuld geldig filter, geen bewezen thermische stabiliteit of PLL-lock.
-- Alleen toepassen bij minstens 2 Hz verschil op de TX-uitgang, bij eerste
-  inschakeling of bij een gewijzigde LO/rate. Geen wachttijd van vijf minuten.
-- Nieuwe TX-FTW en RX-FTW=0 schrijven, daarna apply-bit omkeren. Geen fase-reset.
-  Registerreadback controleert de geschreven configuratie, niet onafhankelijk de
-  verwerking in het datapad. Bij een schrijffout blijven verdere writes geblokkeerd
-  tot een herstart; de toestand kan dan gedeeltelijk toegepast zijn.
-- Zonder referentie `WAITING`, of `HOLDOVER` als een geldige schatting bestaat.
-  In holdover blijft de FTW behouden; alleen een LO/ratewissel herberekent met
-  de laatste geldige TCXO-fout. Na herstel wachten op nieuwe geldige samples.
-- Bij gewijzigde `xo_correction` blokkeren verdere applies tot herstart.
+- Every second: read reference status, TX-LO, and converter rate.
+- By default every two seconds: sample the signed TCXO error. The FPGA
+  provides no sequence counter, so individual new measurement windows cannot
+  be provably distinguished. Two seconds is a conservative default value;
+  identical or zero measurements are not wrongly flagged as faulty.
+- After start or reference recovery, first wait two seconds and collect at
+  least five samples. The window then grows to sixteen samples.
+- The average of the sliding window determines the correction. With a
+  spread above 5 Hz or an absolute measurement error above 10000 Hz, no new
+  estimate is applied.
+- From five samples: `TRACKING`; with a full valid window: `STABLE`. This
+  status means a filled valid filter, not proven thermal stability or PLL
+  lock.
+- Only apply with at least a 2 Hz difference on the TX output, on first
+  enable, or on a changed LO/rate. No five-minute wait time.
+- Write new TX-FTW and RX-FTW=0, then toggle the apply bit. No phase reset.
+  Register readback checks the written configuration, not independently the
+  processing in the data path. On a write error, further writes stay
+  blocked until a restart; the state may then be partially applied.
+- Without a reference: `WAITING`, or `HOLDOVER` if a valid estimate exists.
+  In holdover, the FTW is retained; only an LO/rate change recalculates it
+  using the last valid TCXO error. After recovery, it waits for new valid
+  samples.
+- On a changed `xo_correction`, further applies are blocked until restart.
 
-De formule gebruikt `e = gemeten TCXO - 40000000`:
+The formula uses `e = measured TCXO - 40000000`:
 
 ```text
 actual_fs = tx_fs * (40000000 + e) / 40000000
@@ -76,44 +84,47 @@ shift     = -tx_lo * e / 40000000
 tx_ftw    = round(shift * 2^32 / actual_fs)
 ```
 
-De correctie richt zich op het TX-centrum. Een NCO herstelt de fysieke sample-rate
-niet: bij signalen buiten het centrum blijft de kleine proportionele timing- en
-frequentiefout bestaan. De interne AXI-DDS omzeilt deze NCO; gebruik het DMA/DVB-pad.
-RX blijft uit. De oude analoge lock-bit is geen vereiste; `ref_present` is dat wel.
-Wijzig tijdens gebruik de klokbron/DAC-regeling niet via andere software.
+The correction targets the TX center. An NCO does not restore the physical
+sample rate: for signals away from the center, the small proportional
+timing and frequency error remains. The internal AXI-DDS bypasses this NCO;
+use the DMA/DVB path instead. RX stays untouched. The old analog lock bit is
+not a requirement; `ref_present` is. Do not change the clock source/DAC
+control via other software while this is in use.
 
-## Firmware en boot
+## Firmware and boot
 
-De Libre-defconfig voegt `board/tezuka/libre/overlay` toe na de gedeelde overlays
-uit `board/tezuka/common`. De Libre
-post-buildstap zet de uitvoerrechten, ook voor builds uit een Windows-checkout.
-Voor een bestaande Buildroot-output moet de bijgewerkte defconfig opnieuw geladen
-worden voordat de firmware wordt gebouwd.
+The Libre defconfig adds `board/tezuka/libre/overlay` after the shared
+overlays from `board/tezuka/common`. The Libre post-build step sets the
+execute permissions, including for builds from a Windows checkout. For an
+existing Buildroot output, the updated defconfig must be reloaded before
+building the firmware.
 
-Voor starten bij boot: zet ook `AUTOSTART=1` in de configuratie. `S95tx-nco`
-start de achtergrondregeling; open later het scherm via SSH. Standaard staat boot
-uit omdat Libre-boards ook andere oscillatoren/bitstreams kunnen hebben. Wijzig
-de configuratie in de bron-overlay voor instellingen die in het firmware-image
-moeten zitten; wijzigingen in een vluchtig rootfs overleven een reboot niet.
+To start at boot: also set `AUTOSTART=1` in the configuration. `S95tx-nco`
+starts the background control loop; open the screen later over SSH. Boot
+start is off by default because Libre boards can also have other
+oscillators/bitstreams. Change the configuration in the source overlay for
+settings that should be part of the firmware image; changes in a volatile
+rootfs do not survive a reboot.
 
-Voor testen zonder nieuwe firmware kun je het script en de configuratie naar
-`/tmp` op het board kopiëren:
+For testing without a new firmware build, you can copy the script and the
+configuration to `/tmp` on the board:
 
 ```sh
 export NCO_CONFIG=/tmp/libresdr-tx-nco.conf
 sh /tmp/libresdr-tx-nco
 ```
 
-## Validatie
+## Validation
 
-Vanaf de repository-root, in een POSIX-omgeving:
+From the repository root, in a POSIX environment:
 
 ```sh
 sh board/tezuka/libre/tests/tx-nco-smoke.sh
 ```
 
-De test gebruikt een tijdelijke nep-registerbank en IIO-bestanden. Op hardware
-blijven de tekenrichting, juiste TX-rate, koude start, LO/ratewissels, 10 MHz
-verlies/herstel en fasecontinuïteit tijdens zenden te verifiëren. Gebruik voor
-de RF-meting dezelfde 10 MHz-tijdbasis. Filter en drempel zijn startwaarden;
-2 Hz is een apply-drempel, geen gegarandeerde absolute nauwkeurigheid.
+The test uses a temporary fake register bank and IIO files. On hardware,
+sign direction, correct TX rate, cold start, LO/rate changes, 10 MHz
+loss/recovery, and phase continuity during transmission still need to be
+verified. Use the same 10 MHz timebase for the RF measurement. The filter
+and threshold are starting values; 2 Hz is an apply threshold, not a
+guaranteed absolute accuracy.
