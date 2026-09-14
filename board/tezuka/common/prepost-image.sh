@@ -24,6 +24,31 @@ fi
 # Extract raw kernel from zImage and compress with lzma
 skip=$(LC_ALL=C grep -a -b -o -P '\x1f\x8b\x08' "$BIN_DIR/zImage" | head -1 | cut -d: -f1)
 dd if="$BIN_DIR/zImage" bs=1 skip="$skip" | gunzip > "$BIN_DIR/Image" 2>/dev/null || true
+
+# Guard against the zImage self-decompression corruption from issue #450:
+# every board's flash FIT (plutomaia.its) loads the kernel at 0x8000 and
+# ships it as a self-extracting zImage (compression="none"). On real
+# hardware this corrupts scattered bytes starting at Image-file offset
+# 0xE88000 (phys 0x8000 + 0xE88000 = 0xE90000) on every boot, once the
+# uncompressed kernel grows past it -- confirmed independent of bootloader
+# version. This does not affect Image.lzma / the SD uImage path, which
+# U-Boot decompresses itself.
+KERNEL_CORRUPT_OFFSET=$((0xE88000))   # 15237120 bytes / ~14.53 MiB
+KERNEL_WARN_MARGIN=$((512 * 1024))    # heads-up 512 KiB before the cliff
+IMAGE_SIZE=$(wc -c < "$BIN_DIR/Image")
+if [ "$IMAGE_SIZE" -ge "$KERNEL_CORRUPT_OFFSET" ]; then
+    echo "ERROR: kernel Image is $IMAGE_SIZE bytes, at or past the known" >&2
+    echo "       zImage self-decompression corruption offset 0xE88000" >&2
+    echo "       (~14.53 MiB, see issue #450). Any board booting this" >&2
+    echo "       kernel from flash via plutomaia.its WILL corrupt .rodata" >&2
+    echo "       at boot (wrong FIR/gain/RSSI/temperature, no rates below" >&2
+    echo "       2.083 MSPS). Trim the kernel or switch that board's FIT" >&2
+    echo "       to Image.lzma/compression=lzma (see PR #449)." >&2
+    exit 1
+elif [ "$IMAGE_SIZE" -ge "$((KERNEL_CORRUPT_OFFSET - KERNEL_WARN_MARGIN))" ]; then
+    echo "WARNING: kernel Image is $IMAGE_SIZE bytes, within $(( (KERNEL_CORRUPT_OFFSET - IMAGE_SIZE) / 1024 )) KiB of the zImage self-decompression corruption offset (issue #450)."
+fi
+
 lzma -z -k -f "$BIN_DIR/Image"
 
 # Convert FPGA bitstream to raw binary
