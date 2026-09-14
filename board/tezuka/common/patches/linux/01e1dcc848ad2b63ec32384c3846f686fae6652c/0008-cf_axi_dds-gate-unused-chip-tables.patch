@@ -1,0 +1,340 @@
+diff --git a/drivers/iio/frequency/Kconfig b/drivers/iio/frequency/Kconfig
+index c444e92..87c5238 100644
+--- a/drivers/iio/frequency/Kconfig
++++ b/drivers/iio/frequency/Kconfig
+@@ -113,6 +113,24 @@ config CF_AXI_DDS
+ 	  Say yes here to build support for Analog Devices DDS chip
+ 	  AD9122, provides direct access via sysfs.
+ 
++config CF_AXI_DDS_MULTICHIP
++	bool "Include chip descriptors for other AXI DDS transceivers/DACs"
++	depends on CF_AXI_DDS
++	default y
++	help
++	  cf_axi_dds's match table always carries a static chip descriptor
++	  (and, for some chips, an iio_chan_spec table) for every AXI-DDS
++	  core the driver has ever supported: AD9739A, the dual-AD9361
++	  (ad9361x2) core, AD9371, ADRV9009 (x2/x4), AD9963, AD9081,
++	  and the ADRV9002/9003/9004/9005/9006/9025 family. AD9361 and
++	  AD9364 are unconditional and unaffected by this option.
++
++	  Say N here if your platform only ever instantiates the AD9361 or
++	  AD9364 core (e.g. PlutoSDR-derived boards) to drop this otherwise
++	  dead weight from the kernel image. This is independent from the
++	  AD9122/AD9144/AD9162/AD9172/AD9783 options below, which gate their
++	  own separate per-chip driver files.
++
+ config CF_AXI_DDS_AD9122
+ 	tristate "Analog Devices AD9122 DAC"
+ 	depends on CF_AXI_DDS
+diff --git a/drivers/iio/frequency/cf_axi_dds.c b/drivers/iio/frequency/cf_axi_dds.c
+index db85a24..68e3972 100644
+--- a/drivers/iio/frequency/cf_axi_dds.c
++++ b/drivers/iio/frequency/cf_axi_dds.c
+@@ -1408,6 +1408,7 @@ static struct cf_axi_dds_chip_info cf_axi_dds_chip_info_ad9361 = {
+ 	.scan_masks = ad9361_available_scan_masks,
+ };
+ 
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_MULTICHIP)
+ static struct cf_axi_dds_chip_info cf_axi_dds_chip_info_ad9371 = {
+ 	.name = "AD9371",
+ 	.channel = {
+@@ -1521,6 +1522,7 @@ static struct cf_axi_dds_chip_info cf_axi_dds_chip_info_adrv9009_x4 = {
+ 	.num_buf_channels = 16,
+ 	.scan_masks = ad9009_4x2_available_scan_masks,
+ };
++#endif /* CONFIG_CF_AXI_DDS_MULTICHIP */
+ 
+ static struct cf_axi_dds_chip_info cf_axi_dds_chip_info_ad9364 = {
+ 	.name = "AD9364",
+@@ -1538,6 +1540,7 @@ static struct cf_axi_dds_chip_info cf_axi_dds_chip_info_ad9364 = {
+ 
+ };
+ 
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_MULTICHIP)
+ static struct cf_axi_dds_chip_info cf_axi_dds_chip_info_ad9361x2 = {
+ 	.name = "AD9361",
+ 	.channel = {
+@@ -1577,6 +1580,7 @@ static struct cf_axi_dds_chip_info cf_axi_dds_chip_info_ad9936 = {
+ 	.num_dds_channels = 4,
+ 	.num_buf_channels = 0,
+ };
++#endif /* CONFIG_CF_AXI_DDS_MULTICHIP */
+ 
+ #define CF_AXI_DDS_ADRV9002_RX2TX2_INFO(_name, _NAME)					\
+ 	static struct cf_axi_dds_chip_info cf_axi_dds_chip_info_##_name##_rx2tx2 = {	\
+@@ -1601,9 +1605,11 @@ static struct cf_axi_dds_chip_info cf_axi_dds_chip_info_ad9936 = {
+ 		.scan_masks = adrv9002_rx2tx2_available_scan_masks,			\
+ }
+ 
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_MULTICHIP)
+ CF_AXI_DDS_ADRV9002_RX2TX2_INFO(adrv9002, ADRV9002);
+ CF_AXI_DDS_ADRV9002_RX2TX2_INFO(adrv9004, ADRV9004);
+ CF_AXI_DDS_ADRV9002_RX2TX2_INFO(adrv9006, ADRV9006);
++#endif /* CONFIG_CF_AXI_DDS_MULTICHIP */
+ 
+ #define CF_AXI_DDS_ADRV9002_INFO(_name, _NAME)					\
+ 	static struct cf_axi_dds_chip_info cf_axi_dds_chip_info_##_name = {	\
+@@ -1622,11 +1628,13 @@ CF_AXI_DDS_ADRV9002_RX2TX2_INFO(adrv9006, ADRV9006);
+ 		.scan_masks = adrv9002_available_scan_masks,			\
+ }
+ 
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_MULTICHIP)
+ CF_AXI_DDS_ADRV9002_INFO(adrv9002, ADRV9002);
+ CF_AXI_DDS_ADRV9002_INFO(adrv9003, ADRV9003);
+ CF_AXI_DDS_ADRV9002_INFO(adrv9004, ADRV9004);
+ CF_AXI_DDS_ADRV9002_INFO(adrv9005, ADRV9005);
+ CF_AXI_DDS_ADRV9002_INFO(adrv9006, ADRV9006);
++#endif /* CONFIG_CF_AXI_DDS_MULTICHIP */
+ 
+ static const struct iio_info cf_axi_dds_info = {
+ 	.read_raw = &cf_axi_dds_read_raw,
+@@ -1997,12 +2005,14 @@ static int cf_axi_dds_setup_chip_info_tbl(struct cf_axi_dds_state *st,
+ 	return 0;
+ }
+ 
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_AD9122)
+ static const struct axidds_core_info ad9122_6_00_a_info = {
+ 	.version = ADI_AXI_PCORE_VER(9, 0, 'a'),
+ 	.rate = 1,
+ 	.data_format = ADI_DATA_FORMAT,
+ 	.issue_sync_en = 1,
+ };
++#endif /* CONFIG_CF_AXI_DDS_AD9122 */
+ 
+ static const struct axidds_core_info ad9361_6_00_a_info = {
+ 	.version = ADI_AXI_PCORE_VER(9, 0, 'a'),
+@@ -2020,6 +2030,7 @@ static const struct axidds_core_info ad9364_6_00_a_info = {
+ 	.chip_info = &cf_axi_dds_chip_info_ad9364,
+ };
+ 
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_MULTICHIP)
+ static const struct axidds_core_info ad9361x2_6_00_a_info = {
+ 	.version = ADI_AXI_PCORE_VER(9, 0, 'a'),
+ 	.standalone = true,
+@@ -2028,7 +2039,9 @@ static const struct axidds_core_info ad9361x2_6_00_a_info = {
+ 	.chip_info = &cf_axi_dds_chip_info_ad9361x2,
+ 	.issue_sync_en = 1,
+ };
++#endif /* CONFIG_CF_AXI_DDS_MULTICHIP */
+ 
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_AD9144)
+ static const struct axidds_core_info ad9144_7_00_a_info = {
+ 	.version = ADI_AXI_PCORE_VER(9, 0, 'a'),
+ 	.rate = 1,
+@@ -2045,19 +2058,25 @@ static const struct axidds_core_info ad9144_7_00_a_info = {
+ 	}},
+ 	.num_device_channels = 1,
+ };
++#endif /* CONFIG_CF_AXI_DDS_AD9144 */
+ 
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_MULTICHIP)
+ static const struct axidds_core_info ad9739a_8_00_b_info = {
+ 	.version = ADI_AXI_PCORE_VER(9, 0, 'b'),
+ 	.rate = 1,
+ 	.data_format = ADI_DATA_FORMAT,
+ 	.issue_sync_en = 1,
+ };
++#endif /* CONFIG_CF_AXI_DDS_MULTICHIP */
+ 
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_AD9783)
+ static const struct axidds_core_info ad9783_1_0_info = {
+ 	.version = ADI_AXI_PCORE_VER(9, 0, 'b'),
+ 	.rate = 1,
+ };
++#endif /* CONFIG_CF_AXI_DDS_AD9783 */
+ 
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_MULTICHIP)
+ static const struct axidds_core_info ad9371_6_00_a_info = {
+ 	.version = ADI_AXI_PCORE_VER(9, 0, 'a'),
+ 	.standalone = true,
+@@ -2078,12 +2097,16 @@ static const struct axidds_core_info adrv9009_x4_9_00_a_info = {
+ 	.rate = 3,
+ 	.chip_info = &cf_axi_dds_chip_info_adrv9009_x4,
+ };
++#endif /* CONFIG_CF_AXI_DDS_MULTICHIP */
+ 
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_AD9162)
+ static const struct axidds_core_info ad9162_1_00_a_info = {
+ 	.version = ADI_AXI_PCORE_VER(9, 0, 'a'),
+ 	.rate = 1,
+ };
++#endif /* CONFIG_CF_AXI_DDS_AD9162 */
+ 
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_MULTICHIP)
+ static const struct axidds_core_info ad9963_1_00_a_info = {
+ 	.version = ADI_AXI_PCORE_VER(9, 0, 'a'),
+ 	.standalone = true,
+@@ -2104,14 +2127,18 @@ static const struct axidds_core_info ad9081_1_00_a_real_info = {
+ 	.standalone = true,
+ 	.complex_modified = false,
+ };
++#endif /* CONFIG_CF_AXI_DDS_MULTICHIP */
+ 
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_AD9172)
+ static const struct axidds_core_info ad9172_1_00_a_info = {
+ 	.version = ADI_AXI_PCORE_VER(9, 1, 'b'),
+ 	.name = "AD917x",
+ 	.complex_modified = true,
+ 	.info_mask_separate = BIT(IIO_CHAN_INFO_SCALE),
+ };
++#endif /* CONFIG_CF_AXI_DDS_AD9172 */
+ 
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_MULTICHIP)
+ static const struct axidds_core_info adrv9002_9_01_b_info = {
+ 	.version = ADI_AXI_PCORE_VER(9, 1, 'b'),
+ 	.standalone = true,
+@@ -2174,81 +2201,121 @@ static const struct axidds_core_info adrv9025_1_00_a_info = {
+ 	.standalone = true,
+ 	.complex_modified = true,
+ };
++#endif /* CONFIG_CF_AXI_DDS_MULTICHIP */
+ 
+ /* Match table for of_platform binding */
+ static const struct of_device_id cf_axi_dds_of_match[] = {
+-	{ .compatible = "adi,axi-ad9122-6.00.a", .data = &ad9122_6_00_a_info},
+-	{ .compatible = "adi,axi-ad9136-1.0", .data = &ad9144_7_00_a_info },
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_AD9122)
++	{ .compatible = "adi,axi-ad9122-6.00.a", .data = &ad9122_6_00_a_info, },
++#endif
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_AD9144)
++	{ .compatible = "adi,axi-ad9136-1.0", .data = &ad9144_7_00_a_info, },
+ 	{ .compatible = "adi,axi-ad9144-1.0", .data = &ad9144_7_00_a_info, },
+ 	{ .compatible = "adi,axi-ad9154-1.0", .data = &ad9144_7_00_a_info, },
+-	{ .compatible = "adi,axi-ad9739a-8.00.b", .data = &ad9739a_8_00_b_info},
++#endif
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_MULTICHIP)
++	{ .compatible = "adi,axi-ad9739a-8.00.b", .data = &ad9739a_8_00_b_info, },
+ 	{
+ 	    .compatible = "adi,axi-ad9361x2-dds-6.00.a",
+ 	    .data = &ad9361x2_6_00_a_info,
+-	}, {
++	},
++#endif
++	{
+ 	    .compatible = "adi,axi-ad9361-dds-6.00.a",
+ 	    .data = &ad9361_6_00_a_info,
+-	}, {
++	},
++	{
+ 	    .compatible = "adi,axi-ad9364-dds-6.00.a",
+ 	    .data = &ad9364_6_00_a_info,
+-	}, {
++	},
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_MULTICHIP)
++	{
+ 	    .compatible = "adi,axi-ad9371-tx-1.0",
+ 	    .data = &ad9371_6_00_a_info,
+-	}, {
++	},
++	{
+ 	    .compatible = "adi,axi-adrv9009-tx-1.0",
+ 	    .data = &ad9371_6_00_a_info,
+-	}, {
++	},
++	{
+ 	    .compatible = "adi,axi-adrv9009-x2-tx-1.0",
+ 	    .data = &adrv9009_x2_9_00_a_info,
+-	}, {
++	},
++	{
+             .compatible = "adi,axi-adrv9009-x4-tx-1.0",
+             .data = &adrv9009_x4_9_00_a_info,
+-        }, {
++        },
++#endif
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_AD9162)
++	{
+ 	    .compatible = "adi,axi-ad9162-1.0",
+ 	    .data = &ad9162_1_00_a_info,
+-	}, {
++	},
++#endif
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_AD9783)
++	{
+ 	    .compatible = "adi,axi-ad9783-1.0",
+ 	    .data = &ad9783_1_0_info,
+-	}, {
++	},
++#endif
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_MULTICHIP)
++	{
+ 	    .compatible = "adi,axi-ad9963-dds-1.00.a",
+ 	    .data = &ad9963_1_00_a_info,
+-	}, {
++	},
++#endif
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_AD9172)
++	{
+ 	    .compatible = "adi,axi-ad9172-1.0",
+ 	    .data = &ad9172_1_00_a_info,
+-	}, {
++	},
++#endif
++#if IS_ENABLED(CONFIG_CF_AXI_DDS_MULTICHIP)
++	{
+ 	    .compatible = "adi,axi-ad9081-tx-1.0",
+ 	    .data = &ad9081_1_00_a_info,
+-	}, {
++	},
++	{
+ 	    .compatible = "adi,axi-ad9081-tx-1.0-real",
+ 	    .data = &ad9081_1_00_a_real_info,
+-	}, {
++	},
++	{
+ 	    .compatible = "adi,axi-adrv9002-tx-1.0",
+-	    .data = &adrv9002_9_01_b_info
+-	},{
++	    .data = &adrv9002_9_01_b_info,
++	},
++	{
+ 	    .compatible = "adi,axi-adrv9002-rx2tx2-1.0",
+-	    .data = &adrv9002_rx2tx2_9_01_b_info
+-	},{
++	    .data = &adrv9002_rx2tx2_9_01_b_info,
++	},
++	{
+ 	    .compatible = "adi,axi-adrv9003-tx-1.0",
+-	    .data = &adrv9003_9_01_b_info
+-	}, {
++	    .data = &adrv9003_9_01_b_info,
++	},
++	{
+ 	    .compatible = "adi,axi-adrv9004-tx-1.0",
+-	    .data = &adrv9004_9_01_b_info
+-	}, {
++	    .data = &adrv9004_9_01_b_info,
++	},
++	{
+ 	    .compatible = "adi,axi-adrv9004-rx2tx2-1.0",
+-	    .data = &adrv9004_rx2tx2_9_01_b_info
+-	}, {
++	    .data = &adrv9004_rx2tx2_9_01_b_info,
++	},
++	{
+ 	    .compatible = "adi,axi-adrv9005-tx-1.0",
+-	    .data = &adrv9005_9_01_b_info
+-	}, {
++	    .data = &adrv9005_9_01_b_info,
++	},
++	{
+ 	    .compatible = "adi,axi-adrv9006-tx-1.0",
+-	    .data = &adrv9006_9_01_b_info
+-	}, {
++	    .data = &adrv9006_9_01_b_info,
++	},
++	{
+ 	    .compatible = "adi,axi-adrv9006-rx2tx2-1.0",
+-	    .data = &adrv9006_rx2tx2_9_01_b_info
+-	}, {
++	    .data = &adrv9006_rx2tx2_9_01_b_info,
++	},
++	{
+ 	    .compatible = "adi,axi-adrv9025-tx-1.0",
+ 	    .data = &adrv9025_1_00_a_info,
+ 	},
++#endif /* CONFIG_CF_AXI_DDS_MULTICHIP */
+ 	{ },
+ };
+ MODULE_DEVICE_TABLE(of, cf_axi_dds_of_match);
